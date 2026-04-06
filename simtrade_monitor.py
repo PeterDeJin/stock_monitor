@@ -11,8 +11,8 @@ from openpyxl.utils import get_column_letter
 
 # ================= 配置設定 =================
 # 優先讀取環境變數（GitHub Actions Secrets），否則使用預設值
-API_KEY    = os.environ.get("SHIOAJI_API_KEY",    "JBkUV2v5c1D2psEVsv9iUnnZkhJvcP5chn7sGPJi6xzq")
-SECRET_KEY = os.environ.get("SHIOAJI_SECRET_KEY", "8Wmrwcoz4Gc8r5gWsxg9HiMScPtFvvDp7L9m958DkHAe")
+API_KEY    = os.environ.get("SHIOAJI_API_KEY",    "")
+SECRET_KEY = os.environ.get("SHIOAJI_SECRET_KEY", "")
 IS_SIMULATION    = os.environ.get("SHIOAJI_SIMULATION", "false").lower() == "true"
 VOLUME_THRESHOLD = 100   # 試撮量門檻 (張)
 LIMIT_ALERT_PCT  = 0.02  # 距漲跌停 2% 以內觸發警示
