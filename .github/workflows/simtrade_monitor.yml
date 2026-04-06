@@ -1,0 +1,47 @@
+name: 台股試撮監控
+
+on:
+  schedule:
+    - cron: '25 0 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install shioaji openpyxl requests pytz
+
+      - name: Run simtrade monitor
+        env:
+          SHIOAJI_API_KEY:    ${{ secrets.SHIOAJI_API_KEY }}
+          SHIOAJI_SECRET_KEY: ${{ secrets.SHIOAJI_SECRET_KEY }}
+          SHIOAJI_SIMULATION: "false"
+        run: python simtrade_monitor.py
+
+      - name: Upload Excel report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 試撮紀錄-${{ github.run_id }}
+          path: 試撮紀錄_*.xlsx
+          retention-days: 7
+
+      - name: Commit Excel to repo
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add 試撮紀錄_*.xlsx || true
+          git diff --staged --quiet || git commit -m "📊 試撮紀錄 $(date +%Y%m%d)"
+          git push || true
