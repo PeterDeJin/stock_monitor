@@ -21,10 +21,9 @@ TZ_TW = pytz.timezone("Asia/Taipei")
 MARKET_CLOSE_HOUR   = 13
 MARKET_CLOSE_MINUTE = 35  # 13:35 後自動結束
 
-BARK_KEYS = [
-    "TW8hgBWttV99DiyXHLy63c",
-    "X2HvykRh99Eb2mionnHkp6",
-]
+# 從環境變數讀取，多支手機用逗號分隔（例如："key1,key2"）
+_bark_env = os.environ.get("BARK_KEYS", "")
+BARK_KEYS = [k.strip() for k in _bark_env.split(",") if k.strip()]
 
 # ── 內部狀態 ──────────────────────────────────────────────
 last_push_time   = {}   # code -> 上次推播 timestamp
