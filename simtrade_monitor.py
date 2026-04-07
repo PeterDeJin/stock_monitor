@@ -13,7 +13,7 @@ from openpyxl.utils import get_column_letter
 # 優先讀取環境變數（GitHub Actions Secrets），否則使用預設值
 API_KEY    = os.environ.get("SHIOAJI_API_KEY",    "")
 SECRET_KEY = os.environ.get("SHIOAJI_SECRET_KEY", "")
-IS_SIMULATION    = os.environ.get("SHIOAJI_SIMULATION", "false").lower() == "False"
+IS_SIMULATION    = os.environ.get("SHIOAJI_SIMULATION", "false").lower() == "false"
 VOLUME_THRESHOLD = 100   # 試撮量門檻 (張)
 LIMIT_ALERT_PCT  = 0.02  # 距漲跌停 2% 以內觸發警示
 
