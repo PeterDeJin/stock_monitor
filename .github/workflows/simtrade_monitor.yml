@@ -29,7 +29,8 @@ jobs:
           SHIOAJI_SECRET_KEY: ${{ secrets.SHIOAJI_SECRET_KEY }}
           SHIOAJI_SIMULATION: "false"
           BARK_KEYS:          ${{ secrets.BARK_KEYS }}
-        run: python simtrade_monitor.py
+          PYTHONUNBUFFERED: "1"
+        run: python -u simtrade_monitor.py
 
       # 把 Excel 上傳為 Artifact（保留 7 天，可在 GitHub Actions 頁面下載）
       - name: Upload Excel report
