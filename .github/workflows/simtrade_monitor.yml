@@ -3,7 +3,7 @@ name: 台股試撮監控
 on:
   schedule:
     # UTC 00:25 = 台灣時間 08:25，週一到週五自動啟動
-    - cron: '0 23 * * 1-5'
+    - cron: '0 23 * * 0-4'
   workflow_dispatch:  # 也可以在 GitHub 網頁手動觸發
 
 jobs:
