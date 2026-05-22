@@ -155,17 +155,34 @@ def get_dynamic_market_list(api):
     target_categories = ["24","25","26","27","28","29","30","31","32","21","03","13","23"]
     MANUAL_BLACKLIST  = []
 
+    # 新版 shioaji 直接迭代 TSE 會因為某些合約 code 是 int 而炸掉
+    # 改用 keys() 拿代碼清單，再逐一查詢
+    tse = api.Contracts.Stocks.TSE
+    try:
+        tse_codes = [str(k) for k in tse.keys()]
+    except Exception:
+        tse_codes = [f"{n:04d}" for n in range(1000, 10000)]   # fallback 暴力查詢
+
     candidate_contracts = []
-    for contract in api.Contracts.Stocks.TSE:
-        if str(contract.code) in MANUAL_BLACKLIST or str(contract.code) in official_excluded:
+    for code_str in tse_codes:
+        if len(code_str) != 4:
             continue
-        if len(str(contract.code)) != 4:
+        if code_str in MANUAL_BLACKLIST or code_str in official_excluded:
             continue
-        if contract.category not in target_categories:
+        try:
+            contract = tse[code_str]
+        except Exception:
             continue
-        if contract.day_trade != sj.constant.DayTrade.Yes:
+        if contract is None:
             continue
-        if hasattr(contract, "special_type") and contract.special_type != 0:
+        try:
+            if contract.category not in target_categories:
+                continue
+            if contract.day_trade != sj.constant.DayTrade.Yes:
+                continue
+            if hasattr(contract, "special_type") and contract.special_type != 0:
+                continue
+        except Exception:
             continue
         candidate_contracts.append(contract)
 
