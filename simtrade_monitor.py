@@ -362,21 +362,47 @@ def get_dynamic_market_list(api):
     target_categories = get_target_categories()
     MANUAL_BLACKLIST  = []
 
+    # ── 繞過 shioaji 迭代器 bug：改用 keys() 或暴力逐碼查詢 ──
     candidate_contracts = []
-    for contract in api.Contracts.Stocks.TSE:
-        try:
-            code_str = str(contract.code)
-        except Exception:
+    tse = api.Contracts.Stocks.TSE
+
+    # 嘗試取得所有可用的代碼（不觸發完整迭代驗證）
+    tse_codes = []
+    try:
+        # 方法1: 用 keys()
+        if hasattr(tse, "keys"):
+            tse_codes = [str(k) for k in tse.keys()]
+        # 方法2: 用 __dict__ 取底層字典
+        elif hasattr(tse, "__dict__"):
+            tse_codes = [str(k) for k in tse.__dict__.keys()]
+        print(f"📋 取得 {len(tse_codes)} 個合約代碼")
+    except Exception as e:
+        print(f"⚠️ 無法取得合約代碼清單：{e}")
+
+    # 若上述都失敗，暴力查詢 1000-9999
+    if not tse_codes:
+        print("🔍 改用暴力逐碼查詢（1000-9999）")
+        tse_codes = [f"{n:04d}" for n in range(1000, 10000)]
+
+    for code_str in tse_codes:
+        if not code_str or len(code_str) != 4:
             continue
         if code_str in MANUAL_BLACKLIST or code_str in official_excluded:
             continue
-        if len(code_str) != 4:
+        try:
+            contract = tse[code_str]
+        except Exception:
             continue
-        if contract.category not in target_categories:
+        if contract is None:
             continue
-        if contract.day_trade != sj.constant.DayTrade.Yes:
-            continue
-        if hasattr(contract, "special_type") and contract.special_type != 0:
+        try:
+            if contract.category not in target_categories:
+                continue
+            if contract.day_trade != sj.constant.DayTrade.Yes:
+                continue
+            if hasattr(contract, "special_type") and contract.special_type != 0:
+                continue
+        except Exception:
             continue
         candidate_contracts.append(contract)
 
