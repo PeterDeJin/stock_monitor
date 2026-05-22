@@ -360,9 +360,24 @@ def get_dynamic_market_list(api):
     target_categories = get_target_categories()
     MANUAL_BLACKLIST  = []
 
+    # 安全迭代：某些版本的 shioaji 在迭代特定合約時會拋出型別錯誤，逐一跳過
+    def safe_tse_contracts():
+        it = iter(api.Contracts.Stocks.TSE)
+        while True:
+            try:
+                yield next(it)
+            except StopIteration:
+                break
+            except Exception as e:
+                print(f"⚠️ 跳過問題合約: {e}")
+                continue
+
     candidate_contracts = []
-    for contract in api.Contracts.Stocks.TSE:
-        code_str = str(contract.code)   # 新版 shioaji code 可能是 int，統一轉字串
+    for contract in safe_tse_contracts():
+        try:
+            code_str = str(contract.code)
+        except Exception:
+            continue
         if code_str in MANUAL_BLACKLIST or code_str in official_excluded:
             continue
         if len(code_str) != 4:
