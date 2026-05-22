@@ -98,8 +98,8 @@ def _init_state(code: str, limit_up=None, limit_down=None, reference=None):
 # ─────────────── Tick 處理 ────────────────────────────────
 # 注意：不使用裝飾器，改在 api.login() 之後手動註冊，避免 AuthError
 
-def on_tick_handler(exchange, tick):
-    code     = tick.code
+def on_tick_handler(tick):
+    code     = str(tick.code)   # 新版 shioaji code 可能是 int
     time_int = tick.datetime.hour * 100 + tick.datetime.minute
     is_trading_time = (900 <= time_int < 1325)
 
@@ -362,9 +362,10 @@ def get_dynamic_market_list(api):
 
     candidate_contracts = []
     for contract in api.Contracts.Stocks.TSE:
-        if contract.code in MANUAL_BLACKLIST or contract.code in official_excluded:
+        code_str = str(contract.code)   # 新版 shioaji code 可能是 int，統一轉字串
+        if code_str in MANUAL_BLACKLIST or code_str in official_excluded:
             continue
-        if len(contract.code) != 4:
+        if len(code_str) != 4:
             continue
         if contract.category not in target_categories:
             continue
