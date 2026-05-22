@@ -27,7 +27,7 @@ jobs:
         env:
           SHIOAJI_API_KEY:    ${{ secrets.SHIOAJI_API_KEY }}
           SHIOAJI_SECRET_KEY: ${{ secrets.SHIOAJI_SECRET_KEY }}
-          SHIOAJI_SIMULATION: "false"
+          SHIOAJI_SIMULATION: "True"
           BARK_KEYS:          ${{ secrets.BARK_KEYS }}
         run: python simtrade_monitor.py
 
