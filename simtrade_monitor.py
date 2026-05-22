@@ -97,9 +97,11 @@ def _init_state(code: str, limit_up=None, limit_down=None, reference=None):
 
 # ─────────────── Tick 處理 ────────────────────────────────
 # 注意：不使用裝飾器，改在 api.login() 之後手動註冊，避免 AuthError
+# *args 同時相容 0.3.x (exchange, tick) 與 1.x (tick) 兩種版本的 callback 簽名
 
-def on_tick_handler(tick):
-    code     = str(tick.code)   # 新版 shioaji code 可能是 int
+def on_tick_handler(*args):
+    tick     = args[-1]          # 最後一個參數永遠是 tick，不管哪個版本
+    code     = str(tick.code)
     time_int = tick.datetime.hour * 100 + tick.datetime.minute
     is_trading_time = (900 <= time_int < 1325)
 
@@ -360,20 +362,8 @@ def get_dynamic_market_list(api):
     target_categories = get_target_categories()
     MANUAL_BLACKLIST  = []
 
-    # 安全迭代：某些版本的 shioaji 在迭代特定合約時會拋出型別錯誤，逐一跳過
-    def safe_tse_contracts():
-        it = iter(api.Contracts.Stocks.TSE)
-        while True:
-            try:
-                yield next(it)
-            except StopIteration:
-                break
-            except Exception as e:
-                print(f"⚠️ 跳過問題合約: {e}")
-                continue
-
     candidate_contracts = []
-    for contract in safe_tse_contracts():
+    for contract in api.Contracts.Stocks.TSE:
         try:
             code_str = str(contract.code)
         except Exception:
