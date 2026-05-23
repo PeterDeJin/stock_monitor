@@ -25,8 +25,8 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 # ================= 配置 =================
-API_KEY    = os.environ.get("SHIOAJI_API_KEY",    "JBkUV2v5c1D2psEVsv9iUnnZkhJvcP5chn7sGPJi6xzq")
-SECRET_KEY = os.environ.get("SHIOAJI_SECRET_KEY", "8Wmrwcoz4Gc8r5gWsxg9HiMScPtFvvDp7L9m958DkHAe")
+API_KEY    = os.environ.get("SHIOAJI_API_KEY",    "")
+SECRET_KEY = os.environ.get("SHIOAJI_SECRET_KEY", "")
 IS_SIMULATION = os.environ.get("SHIOAJI_SIMULATION", "true").lower() == "true"
 
 VOLUME_THRESHOLD     = 100   # 試撮量門檻（張）
@@ -37,10 +37,7 @@ MARKET_CLOSE_HOUR     = 13
 MARKET_CLOSE_MINUTE   = 35   # 13:35 自動結束
 
 _bark_env = os.environ.get("BARK_KEYS", "")
-BARK_KEYS = [k.strip() for k in _bark_env.split(",") if k.strip()] or [
-    "TW8hgBWttV99DiyXHLy63c",
-    "X2HvykRh99Eb2mionnHkp6",
-]
+BARK_KEYS = [k.strip() for k in _bark_env.split(",") if k.strip()]
 
 # ── 內部狀態 ──
 stock_state       = {}    # code -> dict（每檔股票的試撮狀態）
