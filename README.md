@@ -6,11 +6,13 @@
 
 ## 🎯 功能特色
 
-- **自動排程**：每週一到週五 07:35（台灣時間）自動啟動，13:35 自動結束
+- **自動排程**：每週一到週五 07:10（台灣時間）自動啟動，13:35 自動結束
 - **即時通知**：偵測到試撮時透過 Bark 推播到手機
 - **完整紀錄**：產出當日 Excel 報表，含試撮前後價格、影響幅度、盤型、警示等資訊
 - **漲跌停警示**：當個股日內已漲跌 ≥ ±8% 又出現試撮時特別標注
 - **動態標的篩選**：自動過濾上市股票，鎖定指定族群、15-300 元、可當沖
+- **時區安全**：所有時間判斷皆用台灣時區（UTC+8），不受 GitHub runner UTC 時區影響
+- **懸空試撮處理**：試撮開始後沒等到結束 tick 也會補上紀錄，並在 Excel 結束時間後加 `※` 標記
 
 ---
 
@@ -40,7 +42,8 @@
 ┌─────────────────────────────────────────┐
 │   GitHub Actions 雲端伺服器              │
 │                                          │
-│   07:35 ── 啟動，登入永豐 Shioaji API   │
+│   07:10 ── Cron 觸發，加入執行佇列        │
+│   ~08:00── Runner 配給，登入永豐 API     │
 │         ── 訂閱 ~250 檔股票 tick        │
 │   09:00 ── 開始記錄試撮                  │
 │   13:35 ── 自動結束，匯出 Excel         │
@@ -64,7 +67,8 @@ stock_monitor/
 ├── .github/
 │   └── workflows/
 │       └── simtrade_monitor.yml     # GitHub Actions 排程設定
-└── 試撮紀錄_YYYYMMDD.xlsx           # 每日自動產出的 Excel 報表
+├── 試撮紀錄_YYYYMMDD.xlsx           # 每日自動產出的 Excel 報表
+└── README.md                         # 本文件
 ```
 
 ---
@@ -79,18 +83,52 @@ stock_monitor/
 |------------|------|
 | `SHIOAJI_API_KEY` | 永豐金證券 API Key |
 | `SHIOAJI_SECRET_KEY` | 永豐金證券 Secret Key |
-| `BARK_KEYS` | Bark Key（多支手機用逗號分隔，例 `key1,key2`） |
+| `BARK_KEYS` | Bark Device Key（多支手機用逗號分隔，例 `key1,key2`） |
 
-### 2. 調整 yml 設定（選用）
+> ⚠️ Secret 設定後就算是 public repo 也看不到內容，這是安全注入到環境變數的標準做法。**金鑰絕對不要寫在程式碼裡**，任何 `git log` 都翻得到。
 
-`.github/workflows/simtrade_monitor.yml` 內可調整：
+### 2. 給 workflow push 權限（重要！）
 
-- **`SHIOAJI_SIMULATION`**：`"true"` 模擬模式（行情正常） / `"false"` 正式模式
-- **`cron`**：執行排程，預設週一到週五台灣 07:35
+Actions 結束後會把 Excel commit 回 repo。在 yml 內已設定：
 
-### 3. 觸發測試
+```yaml
+permissions:
+  contents: write
+```
+
+若你看到 `Permission denied to github-actions[bot]`，代表這行漏了。
+
+### 3. 調整 yml 設定（選用）
+
+`.github/workflows/simtrade_monitor.yml` 內：
+
+| 設定 | 說明 |
+|------|------|
+| `SHIOAJI_SIMULATION: "true"` | 模擬模式（行情即時，但下單不會真實成交） |
+| `SHIOAJI_SIMULATION: "false"` | 正式模式（需有正式 API 權限） |
+| `cron: '10 23 * * 0-4'` | UTC 23:10 = 台灣 07:10，週一到週五（見下表） |
+| `timeout-minutes: 350` | 單 job 最長執行 350 分鐘（GitHub 硬限制 360） |
+
+#### Cron 對照表
+
+GitHub cron 用 UTC 時間，台灣時間需要轉換：
+
+| cron 數字 | UTC 星期 | 換算台灣（+8 小時） |
+|----------|---------|-------------------|
+| 0 | 週日 23:10 | **週一 07:10** ✅ |
+| 1 | 週一 23:10 | **週二 07:10** ✅ |
+| 2 | 週二 23:10 | **週三 07:10** ✅ |
+| 3 | 週三 23:10 | **週四 07:10** ✅ |
+| 4 | 週四 23:10 | **週五 07:10** ✅ |
+
+所以 `0-4` 對應到台灣時間就是「週一到週五」，週六、週日不會觸發。
+
+### 4. 觸發測試
 
 到 **Actions → 台股試撮監控 → Run workflow** 手動觸發一次確認流程正常。
+
+> ⚠️ 注意：手動觸發若在非交易時段（例如凌晨），程式會等到當天 13:35 才結束。
+> GitHub Actions 6 小時上限會先到，所以建議測試時記得手動 Cancel。
 
 ---
 
@@ -101,7 +139,7 @@ stock_monitor/
 ```python
 VOLUME_THRESHOLD     = 100   # 試撮量門檻（張），低於此量不記錄
 SURGE_THRESHOLD_PCT  = 8.0   # 漲跌停警示門檻（%）
-MARKET_OPEN_HOUR     = 9     # 開始記錄時間
+MARKET_OPEN_HOUR     = 9     # 開始記錄時間（台灣時間）
 MARKET_CLOSE_HOUR    = 13    # 結束小時
 MARKET_CLOSE_MINUTE  = 35    # 結束分鐘
 ```
@@ -110,10 +148,17 @@ MARKET_CLOSE_MINUTE  = 35    # 結束分鐘
 
 ```python
 target_categories = ["24","25","26","27","28","29","30","31","32","21","03","13","23"]
-# 24-32：電子相關（半導體、電腦、光電等）
-# 21：化學   03：食品   13：電器電纜
-# 23：玻璃陶瓷
+# 24-32：電子相關（半導體、電腦、光電、通訊、零組件等）
+# 21：化學   03：食品   13：電器電纜   23：玻璃陶瓷
 ```
+
+股價區間在 `get_market_list()` 內：
+
+```python
+if not (s.close and 15 <= s.close <= 300):
+```
+
+預設 15-300 元，可依需求調整。
 
 ---
 
@@ -123,13 +168,14 @@ target_categories = ["24","25","26","27","28","29","30","31","32","21","03","13"
 
 - **單一 job 最長執行時間：6 小時**（硬性上限，無法延長）
 - **排程觸發可能延遲 15-90 分鐘**（GitHub 不保證準時）
-- 因此 cron 設在 07:35，留約 1.5 小時緩衝給延遲，並能完整覆蓋 09:00-13:35 交易日
+- 因此 cron 設在 07:10，留約 1 小時 50 分緩衝給延遲，能完整覆蓋 09:00-13:35 交易日
+- **Public repo Actions 分鐘數無限制**；private repo 每月限 2,000 分鐘（不夠用）
 
 ### Shioaji API 注意事項
 
-- 訂閱股票數量建議 ≤ 250 檔
-- API Key 從 GitHub Secrets 讀取，**不要直接寫在程式碼裡**
+- 訂閱股票數量建議 ≤ 250 檔（API 訂閱數有上限）
 - 模擬與正式模式皆能接收即時行情；差別在於下單是否真實執行
+- 新版 shioaji（≥ 1.3）某些合約 `code` 是 int，程式已用 `tse.keys()` 繞過此 bug
 
 ---
 
@@ -150,11 +196,20 @@ A：可能原因——
 2. GitHub Actions 排程延遲超過 1.5 小時，錯過 09:00 開盤試撮
 3. 某些股票試撮未正常結束（會在 Excel 中以 `※` 標記）
 
+**Q：手動觸發程式卻沒看到自動停止？**
+A：程式只有在台灣時間 ≥ 13:35 才會自動結束。若你在凌晨手動測試，程式會「等到 13:35」，但實際上 GitHub Actions 會在 6 小時內把它砍掉。測試結束記得手動 Cancel workflow。
+
 **Q：可以改成監測其他族群嗎？**
 A：可以。改 `simtrade_monitor.py` 的 `target_categories` 後重新觸發即可。
 
 **Q：手機沒收到 Bark 通知？**
 A：檢查 GitHub Secrets 的 `BARK_KEYS` 是否設定正確（多組 Key 用逗號分隔，無空格）。
+
+**Q：看到 `⚠️ 跳過問題合約: 'int' object is not an instance of 'str'`？**
+A：正常現象。新版 shioaji 有少數合約 `code` 欄位是整數，程式會自動跳過，不影響其他股票監控。
+
+**Q：cron 是 `0-4`，那 5、6 不就是週五週六嗎？**
+A：cron 的 0 代表週日，所以 `0-4` 是「週日到週四（UTC）」。換算成台灣時間是「週一到週五」，週六週日絕對不會觸發排程。
 
 ---
 
