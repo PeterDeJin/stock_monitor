@@ -9,7 +9,9 @@ on:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 350   # GitHub 硬性上限 360 分鐘，設 350 留 10 分鐘給匯出 Excel
+    timeout-minutes: 350
+    permissions:
+      contents: write   # 允許 github-actions[bot] 推回 Excel   # GitHub 硬性上限 360 分鐘，設 350 留 10 分鐘給匯出 Excel
 
     steps:
       - name: Checkout repo

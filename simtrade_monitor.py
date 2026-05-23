@@ -19,8 +19,15 @@ import requests
 import urllib.parse
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import openpyxl
+
+# ── 台灣時區（UTC+8）──
+TW_TZ = timezone(timedelta(hours=8))
+
+def now_tw() -> datetime:
+    """取得台灣當下時間"""
+    return datetime.now(TW_TZ)
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
@@ -172,20 +179,21 @@ def _record_sim(state, code, post_sim_price, dt):
 
 def get_market_list(api):
     """回傳 (代碼清單, {code: (昨收, 漲停, 跌停)})"""
-    # 官方異常名單
+    # 官方異常名單（TWSE 半夜或非交易日 API 會回空字串，失敗就略過不影響主流程）
     excluded = []
-    try:
-        for url in [
-            "https://www.twse.com.tw/exchangeReport/TWTB4U?response=json",
-            "https://www.twse.com.tw/exchangeReport/TWT11U?response=json",
-        ]:
+    for url in [
+        "https://www.twse.com.tw/exchangeReport/TWTB4U?response=json",
+        "https://www.twse.com.tw/exchangeReport/TWT11U?response=json",
+    ]:
+        try:
             res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
             data = res.json()
             if "data" in data:
                 excluded.extend([row[0].split(" ")[0] for row in data["data"]])
+        except Exception:
+            pass   # 靜默略過
+    if excluded:
         print(f"📊 官方異常名單 {len(excluded)} 檔")
-    except Exception as e:
-        print(f"⚠️ 官方名單讀取失敗: {e}")
 
     target_categories = ["24","25","26","27","28","29","30","31","32","21","03","13","23"]
 
@@ -255,7 +263,7 @@ def get_market_list(api):
 # ================= Excel 匯出 =================
 
 def export_excel():
-    today  = datetime.now().strftime("%Y%m%d")
+    today  = now_tw().strftime("%Y%m%d")
     folder = os.path.dirname(os.path.abspath(__file__))
     path   = os.path.join(folder, f"試撮紀錄_{today}.xlsx")
 
@@ -324,7 +332,7 @@ def main():
     api.login(api_key=API_KEY, secret_key=SECRET_KEY)
     api.on_tick_stk_v1()(on_tick_handler)   # 登入後才註冊 callback
 
-    now_str = datetime.now().strftime("%H:%M:%S")
+    now_str = now_tw().strftime("%H:%M:%S")
     send_bark("系統公告", f"監控程式於 {now_str} 啟動！")
     print(f"✅ 登入成功 {now_str}", flush=True)
 
@@ -374,7 +382,7 @@ def main():
     try:
         while True:
             ts  = time.time()
-            now = datetime.now()
+            now = now_tw()
 
             # 13:35 自動結束
             if now.hour > MARKET_CLOSE_HOUR or \
@@ -391,8 +399,8 @@ def main():
 
     except (KeyboardInterrupt, SystemExit):
         # 補上「懸空試撮」：開始了但沒等到結束 tick
-        now_str = datetime.now().strftime("%H:%M:%S")
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        now_str = now_tw().strftime("%H:%M:%S")
+        today_str = now_tw().strftime("%Y-%m-%d")
         for code, state in stock_state.items():
             if state["in_sim"]:
                 today_sim_records.append({
