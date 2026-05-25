@@ -25,6 +25,7 @@ jobs:
 
       - name: Run simtrade monitor
         env:
+          PYTHONUNBUFFERED: "1"
           SHIOAJI_API_KEY:    ${{ secrets.SHIOAJI_API_KEY }}
           SHIOAJI_SECRET_KEY: ${{ secrets.SHIOAJI_SECRET_KEY }}
           SHIOAJI_SIMULATION: "false"
