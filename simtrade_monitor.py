@@ -344,7 +344,23 @@ def export_excel():
 def main():
     # 登入
     api.login(api_key=API_KEY, secret_key=SECRET_KEY)
-    api.on_tick_stk_v1()(on_tick_handler)   # 登入後才註冊 callback
+    # 註冊 tick callback：嘗試所有已知方式以相容新舊版 shioaji
+    _registered = False
+    for register_attempt in [
+        lambda: api.quote.set_on_tick_stk_v1_callback(on_tick_handler),  # 新版
+        lambda: api.on_tick_stk_v1()(on_tick_handler),                    # 中版
+        lambda: setattr(api, "on_tick_stk_v1", on_tick_handler),          # 舊版屬性
+    ]:
+        try:
+            register_attempt()
+            _registered = True
+            print(f"📡 Tick callback 已註冊", flush=True)
+            break
+        except Exception as e:
+            print(f"   嘗試註冊方式失敗: {type(e).__name__}: {e}", flush=True)
+            continue
+    if not _registered:
+        print("❌ 所有 callback 註冊方式都失敗", flush=True)
 
     now_str = now_tw().strftime("%H:%M:%S")
     send_bark("系統公告", f"監控程式於 {now_str} 啟動！")
