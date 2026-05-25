@@ -420,21 +420,33 @@ def main():
     print(f"✅ 已訂閱 {sub_n} 檔", flush=True)
 
     # 主迴圈
-    last_hb = 0
+    import sys
+    last_hb     = 0
+    last_pulse  = 0
+    loop_count  = 0
     try:
         while True:
+            loop_count += 1
             ts  = time.time()
             now = now_tw()
 
             # 13:35 自動結束
             if now.hour > MARKET_CLOSE_HOUR or \
                (now.hour == MARKET_CLOSE_HOUR and now.minute >= MARKET_CLOSE_MINUTE):
-                print(f"🔔 {now.strftime('%H:%M:%S')} 已過收盤時間，自動結束", flush=True)
+                sys.stdout.write(f"🔔 {now.strftime('%H:%M:%S')} 已過收盤時間，自動結束\n")
+                sys.stdout.flush()
                 raise SystemExit(0)
+
+            # 每 30 秒強制 pulse（不管什麼狀態，主迴圈活著就會印）
+            if ts - last_pulse >= 30:
+                sys.stdout.write(f"⏱️ [{now.strftime('%H:%M:%S')}] loop={loop_count} ticks={_tick_stats['total']} sim={_tick_stats['sim']} records={len(today_sim_records)}\n")
+                sys.stdout.flush()
+                last_pulse = ts
 
             # 每 5 分鐘心跳
             if ts - last_hb >= 300:
-                print(f"💓 [{now.strftime('%H:%M:%S')}] 監控中... 已記錄 {len(today_sim_records)} 筆", flush=True)
+                sys.stdout.write(f"💓 [{now.strftime('%H:%M:%S')}] 監控中... 已記錄 {len(today_sim_records)} 筆\n")
+                sys.stdout.flush()
                 last_hb = ts
 
             time.sleep(1)
