@@ -74,6 +74,8 @@ def tick_type_str(t) -> str:
 
 # ================= Tick 處理 =================
 
+_tick_stats = {"total": 0, "sim": 0, "first_logged": False}
+
 def on_tick_handler(*args):
     """
     Tick callback。簽名用 *args 同時相容新舊版 shioaji
@@ -81,6 +83,16 @@ def on_tick_handler(*args):
     """
     tick = args[-1]
     code = str(tick.code)
+
+    # ── 診斷：確認 tick 確實有流進來 ──
+    _tick_stats["total"] += 1
+    if not _tick_stats["first_logged"]:
+        print(f"📡 首筆 tick: {code} 價:{tick.close} 量:{tick.volume} simtrade={tick.simtrade}", flush=True)
+        _tick_stats["first_logged"] = True
+    if tick.simtrade:
+        _tick_stats["sim"] += 1
+    if _tick_stats["total"] % 1000 == 0:
+        print(f"📊 已收 {_tick_stats['total']} 筆 tick（試撮 {_tick_stats['sim']} 筆）", flush=True)
 
     # 若 stock_state 還沒有此 code（型別不一致 / 動態訂閱），動態建立預設值
     if code not in stock_state:
@@ -345,11 +357,13 @@ def main():
     # 登入
     api.login(api_key=API_KEY, secret_key=SECRET_KEY)
     # 註冊 tick callback：嘗試所有已知方式以相容新舊版 shioaji
+    # 順序：最新版（推薦）→ 中版 → 舊版屬性
     _registered = False
     for register_attempt in [
-        lambda: api.quote.set_on_tick_stk_v1_callback(on_tick_handler),  # 新版
-        lambda: api.on_tick_stk_v1()(on_tick_handler),                    # 中版
-        lambda: setattr(api, "on_tick_stk_v1", on_tick_handler),          # 舊版屬性
+        lambda: api.set_on_tick_stk_v1_callback(on_tick_handler),           # 1.3+ 推薦
+        lambda: api.quote.set_on_tick_stk_v1_callback(on_tick_handler),     # 1.x deprecated
+        lambda: api.on_tick_stk_v1()(on_tick_handler),                       # 中版
+        lambda: setattr(api, "on_tick_stk_v1", on_tick_handler),             # 舊版屬性
     ]:
         try:
             register_attempt()
