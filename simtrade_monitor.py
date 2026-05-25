@@ -82,8 +82,22 @@ def on_tick_handler(*args):
     tick = args[-1]
     code = str(tick.code)
 
+    # 若 stock_state 還沒有此 code（型別不一致 / 動態訂閱），動態建立預設值
     if code not in stock_state:
-        return
+        stock_state[code] = {
+            "ref"              : None,
+            "limit_up"         : None,
+            "limit_down"       : None,
+            "pre_sim_price"    : None,
+            "pre_sim_tick_type": 0,
+            "pre_sim_total_vol": 0,
+            "in_sim"           : False,
+            "sim_start_time"   : None,
+            "sim_first_price"  : None,
+            "sim_last_price"   : None,
+            "sim_total_vol"    : 0,
+            "near_limit"       : "",
+        }
     state = stock_state[code]
 
     # 09:00 前不記錄
