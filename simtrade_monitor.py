@@ -91,7 +91,6 @@ def _init_state(code: str, limit_up=None, limit_down=None, reference=None):
 
 # ─────────────── Tick 處理 ────────────────────────────────
 
-@api.on_tick_stk_v1()
 def on_tick_handler(exchange, tick):
     code     = tick.code
     time_int = tick.datetime.hour * 100 + tick.datetime.minute
@@ -314,6 +313,7 @@ def get_dynamic_market_list(api):
 
 def start_monitoring():
     api.login(api_key=API_KEY, secret_key=SECRET_KEY)
+    api.on_tick_stk_v1()(on_tick_handler)   # 登入後再註冊 callback（新版 shioaji 需要）
 
     now_str = datetime.now(TZ_TW).strftime("%H:%M:%S")
     send_bark_alert("系統公告", f"監控程式已於 {now_str} 成功啟動！")
