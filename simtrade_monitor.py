@@ -372,20 +372,18 @@ def main():
             "near_limit"       : "",
         }
 
-    # 訂閱（相容新舊版 API）
+    # 訂閱：用 api.quote.subscribe()（舊版 API，非阻塞）
+    # 新版 api.subscribe() 在 shioaji 1.3.x 會逐筆等回應，254 檔會卡住
     try:
-        qt = sj.QuoteType.Tick
-    except AttributeError:
         qt = sj.constant.QuoteType.Tick
+    except AttributeError:
+        qt = sj.QuoteType.Tick
 
     sub_n = 0
     for code in codes:
         try:
             c = api.Contracts.Stocks[code]
-            try:
-                api.subscribe(c, quote_type=qt)
-            except AttributeError:
-                api.quote.subscribe(c, quote_type=qt)
+            api.quote.subscribe(c, quote_type=qt)
             sub_n += 1
         except Exception as e:
             print(f"⚠️ 訂閱 {code} 失敗: {e}")
