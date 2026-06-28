@@ -23,6 +23,7 @@ MARKET_CLOSE_MINUTE = 35  # 13:35 後自動結束
 
 _bark_env = os.environ.get("BARK_KEYS", "")
 BARK_KEYS = [k.strip() for k in _bark_env.split(",") if k.strip()]
+MONITOR_LABEL = os.environ.get("MONITOR_LABEL", "")   # 推播標題前綴（實驗版用來和正式版區分）
 
 last_push_time    = {}
 stock_state       = {}
@@ -34,6 +35,8 @@ api = sj.Shioaji(simulation=IS_SIMULATION)
 # ─────────────── 工具函式 ─────────────────────────────────
 
 def send_bark_alert(title: str, content: str):
+    if MONITOR_LABEL:
+        title = f"{MONITOR_LABEL}{title}"
     enc_title   = urllib.parse.quote(title)
     enc_content = urllib.parse.quote(content)
     for key in BARK_KEYS:
