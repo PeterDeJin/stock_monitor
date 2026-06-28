@@ -1,0 +1,47 @@
+name: 台股試撮監控(實驗版 experimental)
+
+on:
+  schedule:
+    # UTC 23:10 = 台灣時間 07:10，週一到週五；與正式版同時啟動，但用不同 API key 不互卡
+    - cron: '10 23 * * 0-4'
+  workflow_dispatch:  # 也可以在 GitHub 網頁手動觸發
+
+jobs:
+  monitor-exp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      # 關鍵：抓 experimental 分支的程式（15 欄新版 + bug 修正），不是 main
+      - name: Checkout experimental branch
+        uses: actions/checkout@v4
+        with:
+          ref: experimental
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install "shioaji<1.2" openpyxl requests pytz
+
+      - name: Run simtrade monitor (experimental)
+        env:
+          PYTHONUNBUFFERED: "1"
+          # 第二組 API key（與正式版分開，避免容量衝突）
+          SHIOAJI_API_KEY:    ${{ secrets.SHIOAJI_API_KEY_EXP }}
+          SHIOAJI_SECRET_KEY: ${{ secrets.SHIOAJI_SECRET_KEY_EXP }}
+          SHIOAJI_SIMULATION: "false"
+          BARK_KEYS:          ${{ secrets.BARK_KEYS }}
+          MONITOR_LABEL:      "[實驗版]"   # 推播標題前綴，手機上區分新舊版
+        run: python simtrade_monitor.py
+
+      # 實驗版只上傳 Artifact（保留 7 天），不 commit 回 repo，避免污染分支歷史
+      - name: Upload Excel report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 試撮紀錄-實驗版-${{ github.run_id }}
+          path: 試撮紀錄_*.xlsx
+          retention-days: 7
