@@ -59,9 +59,12 @@ def check_near_limit(price: float, limit_up, limit_down) -> str:
     return ""
 
 
-def calc_change_pct(price: float, reference) -> float | None:
-    """計算相對昨收的漲跌幅（%）"""
-    if reference and reference > 0:
+def calc_change_pct(price, reference) -> float | None:
+    """計算相對昨收的漲跌幅（%）。price/reference 可能是 Decimal，統一轉 float 再算。"""
+    if reference is None:
+        return None
+    price, reference = float(price), float(reference)
+    if reference > 0:
         return round((price - reference) / reference * 100, 2)
     return None
 
@@ -120,6 +123,7 @@ def on_tick_handler(exchange, tick):
     code     = tick.code
     time_int = tick.datetime.hour * 100 + tick.datetime.minute
     is_trading_time = (900 <= time_int < 1325)
+    close    = float(tick.close)   # shioaji 回傳 Decimal，統一轉 float，避免與 float 的 reference/limit 混算
 
     if code not in stock_state:
         _init_state(code)
@@ -138,7 +142,7 @@ def on_tick_handler(exchange, tick):
                 "pre_sim_price"  : state["pre_sim_price"],     # 進試撮前末價
                 "sim_first_price": state["sim_first_price"],   # 試撮後首價
                 "sim_last_price" : state["sim_price"],         # 試撮末價（最後一筆試撮）
-                "end_price"      : tick.close,                 # 結束後首價
+                "end_price"      : close,                 # 結束後首價
                 "change_pct"     : state["change_pct"],
                 "tick_type"      : tick_type_str(state["last_normal_tick_type"]),
                 "pre_total_vol"  : state["last_normal_total_vol"],
@@ -148,9 +152,9 @@ def on_tick_handler(exchange, tick):
                 "near_limit"     : state["near_limit"],
             }
             today_sim_records.append(record)
-            print(f"📝 [{code}] 試撮結束 | 結束價:{tick.close:.2f} | {record['end_time']}")
+            print(f"📝 [{code}] 試撮結束 | 結束價:{close:.2f} | {record['end_time']}")
 
-        state["last_normal_price"]     = tick.close
+        state["last_normal_price"]     = close
         state["last_normal_tick_type"] = getattr(tick, "tick_type", 0)
         state["last_normal_total_vol"] = getattr(tick, "total_volume", 0)
         return
@@ -159,21 +163,21 @@ def on_tick_handler(exchange, tick):
     if not is_trading_time or tick.volume < VOLUME_THRESHOLD:
         return
 
-    near_limit  = check_near_limit(tick.close, state["limit_up"], state["limit_down"])
-    change_pct  = calc_change_pct(tick.close, state["reference"])
+    near_limit  = check_near_limit(close, state["limit_up"], state["limit_down"])
+    change_pct  = calc_change_pct(close, state["reference"])
     is_surge    = change_pct is not None and abs(change_pct) >= SURGE_ALERT_PCT
 
     if not state["in_sim"]:
         state["in_sim"]          = True
         state["sim_start_time"]  = tick.datetime.strftime("%H:%M:%S")
-        state["sim_price"]       = tick.close
+        state["sim_price"]       = close
         state["sim_total_vol"]   = tick.volume
         state["near_limit"]      = near_limit
         state["change_pct"]      = change_pct
         state["pre_sim_price"]   = state["last_normal_price"]  # 進試撮前末價
-        state["sim_first_price"] = tick.close                  # 試撮後首價
-        state["sim_high"]        = tick.close
-        state["sim_low"]         = tick.close
+        state["sim_first_price"] = close                  # 試撮後首價
+        state["sim_high"]        = close
+        state["sim_low"]         = close
 
         pre_price     = state["last_normal_price"]
         pre_type      = tick_type_str(state["last_normal_tick_type"])
@@ -190,7 +194,7 @@ def on_tick_handler(exchange, tick):
         tag_str = "　" + "　".join(tags) if tags else ""
 
         msg = (
-            f"{code} 試撮:{tick.close:.2f} 漲跌:{pct_str} 量:{tick.volume}張{tag_str}\n"
+            f"{code} 試撮:{close:.2f} 漲跌:{pct_str} 量:{tick.volume}張{tag_str}\n"
             f"前價:{pre_price_str} {pre_type} 累積量:{pre_vol}張"
         )
         print(f"🔥 【試撮警報】[{state['sim_start_time']}] {msg}")
@@ -209,11 +213,11 @@ def on_tick_handler(exchange, tick):
 
     else:
         state["sim_total_vol"] += tick.volume
-        state["sim_price"]      = tick.close
-        if state["sim_high"] is None or tick.close > state["sim_high"]:
-            state["sim_high"] = tick.close
-        if state["sim_low"] is None or tick.close < state["sim_low"]:
-            state["sim_low"] = tick.close
+        state["sim_price"]      = close
+        if state["sim_high"] is None or close > state["sim_high"]:
+            state["sim_high"] = close
+        if state["sim_low"] is None or close < state["sim_low"]:
+            state["sim_low"] = close
         if near_limit:
             state["near_limit"] = near_limit
         if change_pct is not None:
@@ -356,7 +360,7 @@ def get_dynamic_market_list(api):
                 if ref is None:
                     chg = _to_float(getattr(s, "change_price", None))
                     if s.close is not None and chg is not None:
-                        ref = round(s.close - chg, 2)
+                        ref = round(float(s.close) - chg, 2)
                 # 漲跌停價：優先 contract.limit_up/limit_down；取不到用昨收 ±10% 估
                 lu = _to_float(getattr(c, "limit_up",   None)) if c else None
                 ld = _to_float(getattr(c, "limit_down", None)) if c else None
