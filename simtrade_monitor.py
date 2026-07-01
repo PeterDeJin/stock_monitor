@@ -79,13 +79,14 @@ def format_change_pct(pct) -> str:
 
 
 def format_pl(price, base) -> str:
-    """以 base 為基準，回傳『金額 (百分比)』，例如 +0.85 (+3.20%)。取不到值回 N/A。"""
-    if price is None or base is None or base == 0:
+    """以 base 為基準，回傳『金額 (百分比)』，例如 0.85 (+3.20%)。金額不帶前導 +
+    號、% 在括號內保留 +/-；避免以 + 開頭被試算表當公式。取不到值回 N/A。"""
+    if price is None or base is None or float(base) == 0:
         return "N/A"
-    diff = price - base
-    pct  = diff / base * 100
-    sign = "+" if diff >= 0 else "-"
-    return f"{sign}{abs(diff):.2f} ({sign}{abs(pct):.2f}%)"
+    diff = float(price) - float(base)
+    pct  = diff / float(base) * 100
+    psign = "+" if pct >= 0 else "-"
+    return f"{diff:.2f} ({psign}{abs(pct):.2f}%)"
 
 
 def _to_float(v):
@@ -261,7 +262,8 @@ def export_to_excel() -> str:
 
     for row_idx, r in enumerate(today_sim_records, 2):
         pct     = r.get("change_pct")
-        pct_str = format_change_pct(pct)
+        # 去掉前導 + 號，避免試算表把整格當公式（例如 +5.26% 會被算成 0.0526）
+        pct_str = format_change_pct(pct).lstrip("+")
         is_surge = pct is not None and abs(pct) >= SURGE_ALERT_PCT
 
         # 最大利潤/最大虧損：以「試撮後首價」為基準，比試撮期間最高/最低價
@@ -282,8 +284,9 @@ def export_to_excel() -> str:
             cell.fill      = row_fill
             cell.alignment = Alignment(horizontal="center")
 
-        # 漲跌幅欄（第9欄）：大幅異動 → 黃底深紅
+        # 漲跌幅欄（第9欄）：設文字格式避免被當公式；大幅異動 → 黃底深紅
         pct_cell = ws.cell(row=row_idx, column=9)
+        pct_cell.number_format = "@"
         if is_surge:
             pct_cell.fill = surge_fill
             pct_cell.font = surge_font
@@ -291,9 +294,13 @@ def export_to_excel() -> str:
             color = "C00000" if pct >= 0 else "375623"  # 上漲深紅 / 下跌深綠
             pct_cell.font = Font(color=color, bold=True)
 
-        # 最大利潤（第13欄）紅、最大虧損（第14欄）綠（台股紅漲綠跌）
-        ws.cell(row=row_idx, column=13).font = Font(color="C00000", bold=True)
-        ws.cell(row=row_idx, column=14).font = Font(color="375623", bold=True)
+        # 最大利潤（第13欄）紅、最大虧損（第14欄）綠（台股紅漲綠跌）；設文字格式避免被當公式
+        profit_cell = ws.cell(row=row_idx, column=13)
+        profit_cell.font = Font(color="C00000", bold=True)
+        profit_cell.number_format = "@"
+        loss_cell = ws.cell(row=row_idx, column=14)
+        loss_cell.font = Font(color="375623", bold=True)
+        loss_cell.number_format = "@"
 
         # 漲跌停警示欄（第15欄）標紅
         if r["near_limit"]:
