@@ -102,6 +102,7 @@ def _init_state(code: str, limit_up=None, limit_down=None, reference=None):
         "last_normal_price"     : None,
         "last_normal_tick_type" : 0,
         "last_normal_total_vol" : 0,
+        "last_normal_volume"    : 0,           # 最後一筆正常成交的單筆量
         "in_sim"                : False,
         "sim_start_time"        : None,
         "sim_price"             : None,
@@ -115,6 +116,7 @@ def _init_state(code: str, limit_up=None, limit_down=None, reference=None):
         "sim_first_price"       : None,        # 試撮後首價
         "sim_high"              : None,        # 試撮期間最高價
         "sim_low"               : None,        # 試撮期間最低價
+        "pre_sim_volume"        : None,        # 進試撮前末量（那一單）
     }
 
 
@@ -147,7 +149,9 @@ def on_tick_handler(exchange, tick):
                 "change_pct"     : state["change_pct"],
                 "tick_type"      : tick_type_str(state["last_normal_tick_type"]),
                 "pre_total_vol"  : state["last_normal_total_vol"],
+                "pre_sim_volume" : state["pre_sim_volume"],     # 進試撮前末量（那一單）
                 "sim_vol"        : state["sim_total_vol"],
+                "end_volume"     : getattr(tick, "volume", 0),  # 結束後首筆成交量
                 "sim_high"       : state["sim_high"],
                 "sim_low"        : state["sim_low"],
                 "near_limit"     : state["near_limit"],
@@ -158,6 +162,7 @@ def on_tick_handler(exchange, tick):
         state["last_normal_price"]     = close
         state["last_normal_tick_type"] = getattr(tick, "tick_type", 0)
         state["last_normal_total_vol"] = getattr(tick, "total_volume", 0)
+        state["last_normal_volume"]    = getattr(tick, "volume", 0)   # 最後一筆正常成交的單筆量
         return
 
     # ── 試撮 (simtrade=True) ──────────────────────────────
@@ -175,7 +180,8 @@ def on_tick_handler(exchange, tick):
         state["sim_total_vol"]   = tick.volume
         state["near_limit"]      = near_limit
         state["change_pct"]      = change_pct
-        state["pre_sim_price"]   = state["last_normal_price"]  # 進試撮前末價
+        state["pre_sim_price"]   = state["last_normal_price"]   # 進試撮前末價
+        state["pre_sim_volume"]  = state["last_normal_volume"]  # 進試撮前末量（那一單）
         state["sim_first_price"] = close                  # 試撮後首價
         state["sim_high"]        = close
         state["sim_low"]         = close
@@ -238,11 +244,13 @@ def export_to_excel() -> str:
 
     headers    = ["日期", "股票代碼", "試撮開始", "試撮結束",
                   "進試撮前末價", "試撮後首價", "試撮末價", "結束後首價",
-                  "漲跌幅%", "最後盤型", "試撮前累積量(張)", "試撮量(張)",
+                  "漲跌幅%", "最後盤型",
+                  "試撮前累積量(張)", "進試撮前末量(張)", "試撮量(張)", "結束後首量(張)",
                   "最大利潤", "最大虧損", "漲跌停警示"]
     col_widths = [12, 10, 13, 13,
                   14, 12, 12, 12,
-                  14, 10, 18, 12,
+                  14, 10,
+                  16, 16, 12, 16,
                   18, 18, 12]
 
     hdr_fill    = PatternFill("solid", fgColor="1F4E79")
@@ -274,7 +282,8 @@ def export_to_excel() -> str:
         values = [
             r.get("date", ""),       r["code"],                r["start_time"],          r["end_time"],
             r.get("pre_sim_price"),  r.get("sim_first_price"), r.get("sim_last_price"),  r["end_price"],
-            pct_str,                 r["tick_type"],           r["pre_total_vol"],       r["sim_vol"],
+            pct_str,                 r["tick_type"],
+            r["pre_total_vol"],      r.get("pre_sim_volume"),  r["sim_vol"],             r.get("end_volume"),
             max_profit_str,          max_loss_str,             r["near_limit"],
         ]
         row_fill = alt_fill if row_idx % 2 == 0 else wht_fill
@@ -294,17 +303,17 @@ def export_to_excel() -> str:
             color = "C00000" if pct >= 0 else "375623"  # 上漲深紅 / 下跌深綠
             pct_cell.font = Font(color=color, bold=True)
 
-        # 最大利潤（第13欄）紅、最大虧損（第14欄）綠（台股紅漲綠跌）；設文字格式避免被當公式
-        profit_cell = ws.cell(row=row_idx, column=13)
+        # 最大利潤（第15欄）紅、最大虧損（第16欄）綠（台股紅漲綠跌）；設文字格式避免被當公式
+        profit_cell = ws.cell(row=row_idx, column=15)
         profit_cell.font = Font(color="C00000", bold=True)
         profit_cell.number_format = "@"
-        loss_cell = ws.cell(row=row_idx, column=14)
+        loss_cell = ws.cell(row=row_idx, column=16)
         loss_cell.font = Font(color="375623", bold=True)
         loss_cell.number_format = "@"
 
-        # 漲跌停警示欄（第15欄）標紅
+        # 漲跌停警示欄（第17欄）標紅
         if r["near_limit"]:
-            ws.cell(row=row_idx, column=15).font = Font(color="FF0000", bold=True)
+            ws.cell(row=row_idx, column=17).font = Font(color="FF0000", bold=True)
 
     ws.freeze_panes = "A2"
     wb.save(filepath)
@@ -359,7 +368,7 @@ def get_dynamic_market_list(api):
         batch     = candidate_contracts[i:i+100]
         snapshots = api.snapshots(batch)
         for s in snapshots:
-            if s.close and 15 <= s.close <= 300:
+            if s.close and 15 <= s.close <= 500:
                 final_codes.append(s.code)
                 c = contract_by_code.get(s.code)
                 # 昨收參考價：優先 contract.reference；取不到就用 snapshot「現價 − 漲跌額」反推
