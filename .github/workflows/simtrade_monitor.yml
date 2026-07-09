@@ -26,10 +26,11 @@ jobs:
       - name: Run simtrade monitor
         env:
           PYTHONUNBUFFERED: "1"
-          SHIOAJI_API_KEY:    ${{ secrets.SHIOAJI_API_KEY }}
-          SHIOAJI_SECRET_KEY: ${{ secrets.SHIOAJI_SECRET_KEY }}
+          SHIOAJI_API_KEY:    ${{ secrets.SHIOAJI_API_KEY_EXP }}
+          SHIOAJI_SECRET_KEY: ${{ secrets.SHIOAJI_SECRET_KEY_EXP }}
           SHIOAJI_SIMULATION: "false"
           BARK_KEYS:          ${{ secrets.BARK_KEYS }}
+          MONITOR_LABEL:      "[實驗版]"
         run: python simtrade_monitor.py
 
       # 把 Excel 上傳為 Artifact（保留 7 天，可在 GitHub Actions 頁面下載）

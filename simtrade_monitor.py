@@ -346,8 +346,8 @@ def get_dynamic_market_list(api):
 
     candidate_contracts = []
     market_count = {}   # 診斷：各市場通過篩選的檔數
-    for mkt_name, market in (("上市", api.Contracts.Stocks.TSE),
-                             ("上櫃", api.Contracts.Stocks.OTC)):
+    # 只監控上櫃（OTC）；要改回含上市，把 ("上市", api.Contracts.Stocks.TSE) 加回下面 tuple
+    for mkt_name, market in (("上櫃", api.Contracts.Stocks.OTC),):
         cnt = 0
         for contract in market:
             if contract.code in MANUAL_BLACKLIST or contract.code in official_excluded:
@@ -363,7 +363,7 @@ def get_dynamic_market_list(api):
             candidate_contracts.append(contract)
             cnt += 1
         market_count[mkt_name] = cnt
-    print(f"📋 族群篩選後：上市 {market_count.get('上市',0)} 檔、上櫃 {market_count.get('上櫃',0)} 檔")
+    print(f"📋 族群篩選後（僅上櫃）：上櫃 {market_count.get('上櫃',0)} 檔")
 
     # 診斷 8042（上櫃）為何有/沒有被納入
     try:
