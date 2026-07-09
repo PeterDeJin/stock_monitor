@@ -23,6 +23,7 @@ MARKET_CLOSE_MINUTE = 35  # 13:35 後自動結束
 
 _bark_env = os.environ.get("BARK_KEYS", "")
 BARK_KEYS = [k.strip() for k in _bark_env.split(",") if k.strip()]
+MONITOR_LABEL = os.environ.get("MONITOR_LABEL", "")   # 推播標題前綴（實驗版用來和正式版區分）
 
 last_push_time    = {}
 stock_state       = {}
@@ -34,6 +35,8 @@ api = sj.Shioaji(simulation=IS_SIMULATION)
 # ─────────────── 工具函式 ─────────────────────────────────
 
 def send_bark_alert(title: str, content: str):
+    if MONITOR_LABEL:
+        title = f"{MONITOR_LABEL}{title}"
     enc_title   = urllib.parse.quote(title)
     enc_content = urllib.parse.quote(content)
     for key in BARK_KEYS:
@@ -56,9 +59,12 @@ def check_near_limit(price: float, limit_up, limit_down) -> str:
     return ""
 
 
-def calc_change_pct(price: float, reference) -> float | None:
-    """計算相對昨收的漲跌幅（%）"""
-    if reference and reference > 0:
+def calc_change_pct(price, reference) -> float | None:
+    """計算相對昨收的漲跌幅（%）。price/reference 可能是 Decimal，統一轉 float 再算。"""
+    if reference is None:
+        return None
+    price, reference = float(price), float(reference)
+    if reference > 0:
         return round((price - reference) / reference * 100, 2)
     return None
 
@@ -72,11 +78,31 @@ def format_change_pct(pct) -> str:
     return f"{sign}{pct:.2f}%{tag}"
 
 
+def format_pl(price, base) -> str:
+    """以 base 為基準，回傳『金額 (百分比)』，例如 0.85 (+3.20%)。金額不帶前導 +
+    號、% 在括號內保留 +/-；避免以 + 開頭被試算表當公式。取不到值回 N/A。"""
+    if price is None or base is None or float(base) == 0:
+        return "N/A"
+    diff = float(price) - float(base)
+    pct  = diff / float(base) * 100
+    psign = "+" if pct >= 0 else "-"
+    return f"{diff:.2f} ({psign}{abs(pct):.2f}%)"
+
+
+def _to_float(v):
+    """安全轉 float；shioaji 某些欄位可能是字串或 None，避免靜默變成 None。"""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _init_state(code: str, limit_up=None, limit_down=None, reference=None):
     stock_state[code] = {
         "last_normal_price"     : None,
         "last_normal_tick_type" : 0,
         "last_normal_total_vol" : 0,
+        "last_normal_volume"    : 0,           # 最後一筆正常成交的單筆量
         "in_sim"                : False,
         "sim_start_time"        : None,
         "sim_price"             : None,
@@ -86,6 +112,11 @@ def _init_state(code: str, limit_up=None, limit_down=None, reference=None):
         "reference"             : reference,   # 昨收參考價
         "near_limit"            : "",
         "change_pct"            : None,        # 試撮時的漲跌幅
+        "pre_sim_price"         : None,        # 進試撮前末價
+        "sim_first_price"       : None,        # 試撮後首價
+        "sim_high"              : None,        # 試撮期間最高價
+        "sim_low"               : None,        # 試撮期間最低價
+        "pre_sim_volume"        : None,        # 進試撮前末量（那一單）
     }
 
 
@@ -95,6 +126,7 @@ def on_tick_handler(exchange, tick):
     code     = tick.code
     time_int = tick.datetime.hour * 100 + tick.datetime.minute
     is_trading_time = (900 <= time_int < 1325)
+    close    = float(tick.close)   # shioaji 回傳 Decimal，統一轉 float，避免與 float 的 reference/limit 混算
 
     if code not in stock_state:
         _init_state(code)
@@ -106,40 +138,53 @@ def on_tick_handler(exchange, tick):
         if state["in_sim"]:
             state["in_sim"] = False
             record = {
-                "code"         : code,
-                "start_time"   : state["sim_start_time"],
-                "end_time"     : tick.datetime.strftime("%H:%M:%S"),
-                "sim_price"    : state["sim_price"],
-                "end_price"    : tick.close,
-                "tick_type"    : tick_type_str(state["last_normal_tick_type"]),
-                "pre_total_vol": state["last_normal_total_vol"],
-                "sim_vol"      : state["sim_total_vol"],
-                "near_limit"   : state["near_limit"],
-                "change_pct"   : state["change_pct"],
+                "date"           : datetime.now(TZ_TW).strftime("%Y-%m-%d"),
+                "code"           : code,
+                "start_time"     : state["sim_start_time"],
+                "end_time"       : tick.datetime.strftime("%H:%M:%S"),
+                "pre_sim_price"  : state["pre_sim_price"],     # 進試撮前末價
+                "sim_first_price": state["sim_first_price"],   # 試撮後首價
+                "sim_last_price" : state["sim_price"],         # 試撮末價（最後一筆試撮）
+                "end_price"      : close,                 # 結束後首價
+                "change_pct"     : state["change_pct"],
+                "tick_type"      : tick_type_str(state["last_normal_tick_type"]),
+                "pre_total_vol"  : state["last_normal_total_vol"],
+                "pre_sim_volume" : state["pre_sim_volume"],     # 進試撮前末量（那一單）
+                "sim_vol"        : state["sim_total_vol"],
+                "end_volume"     : getattr(tick, "volume", 0),  # 結束後首筆成交量
+                "sim_high"       : state["sim_high"],
+                "sim_low"        : state["sim_low"],
+                "near_limit"     : state["near_limit"],
             }
             today_sim_records.append(record)
-            print(f"📝 [{code}] 試撮結束 | 結束價:{tick.close:.2f} | {record['end_time']}")
+            print(f"📝 [{code}] 試撮結束 | 結束價:{close:.2f} | {record['end_time']}")
 
-        state["last_normal_price"]     = tick.close
+        state["last_normal_price"]     = close
         state["last_normal_tick_type"] = getattr(tick, "tick_type", 0)
         state["last_normal_total_vol"] = getattr(tick, "total_volume", 0)
+        state["last_normal_volume"]    = getattr(tick, "volume", 0)   # 最後一筆正常成交的單筆量
         return
 
     # ── 試撮 (simtrade=True) ──────────────────────────────
     if not is_trading_time or tick.volume < VOLUME_THRESHOLD:
         return
 
-    near_limit  = check_near_limit(tick.close, state["limit_up"], state["limit_down"])
-    change_pct  = calc_change_pct(tick.close, state["reference"])
+    near_limit  = check_near_limit(close, state["limit_up"], state["limit_down"])
+    change_pct  = calc_change_pct(close, state["reference"])
     is_surge    = change_pct is not None and abs(change_pct) >= SURGE_ALERT_PCT
 
     if not state["in_sim"]:
-        state["in_sim"]         = True
-        state["sim_start_time"] = tick.datetime.strftime("%H:%M:%S")
-        state["sim_price"]      = tick.close
-        state["sim_total_vol"]  = tick.volume
-        state["near_limit"]     = near_limit
-        state["change_pct"]     = change_pct
+        state["in_sim"]          = True
+        state["sim_start_time"]  = tick.datetime.strftime("%H:%M:%S")
+        state["sim_price"]       = close
+        state["sim_total_vol"]   = tick.volume
+        state["near_limit"]      = near_limit
+        state["change_pct"]      = change_pct
+        state["pre_sim_price"]   = state["last_normal_price"]   # 進試撮前末價
+        state["pre_sim_volume"]  = state["last_normal_volume"]  # 進試撮前末量（那一單）
+        state["sim_first_price"] = close                  # 試撮後首價
+        state["sim_high"]        = close
+        state["sim_low"]         = close
 
         pre_price     = state["last_normal_price"]
         pre_type      = tick_type_str(state["last_normal_tick_type"])
@@ -156,7 +201,7 @@ def on_tick_handler(exchange, tick):
         tag_str = "　" + "　".join(tags) if tags else ""
 
         msg = (
-            f"{code} 試撮:{tick.close:.2f} 漲跌:{pct_str} 量:{tick.volume}張{tag_str}\n"
+            f"{code} 試撮:{close:.2f} 漲跌:{pct_str} 量:{tick.volume}張{tag_str}\n"
             f"前價:{pre_price_str} {pre_type} 累積量:{pre_vol}張"
         )
         print(f"🔥 【試撮警報】[{state['sim_start_time']}] {msg}")
@@ -175,7 +220,11 @@ def on_tick_handler(exchange, tick):
 
     else:
         state["sim_total_vol"] += tick.volume
-        state["sim_price"]      = tick.close
+        state["sim_price"]      = close
+        if state["sim_high"] is None or close > state["sim_high"]:
+            state["sim_high"] = close
+        if state["sim_low"] is None or close < state["sim_low"]:
+            state["sim_low"] = close
         if near_limit:
             state["near_limit"] = near_limit
         if change_pct is not None:
@@ -193,10 +242,16 @@ def export_to_excel() -> str:
     ws = wb.active
     ws.title = "試撮紀錄"
 
-    headers    = ["股票代碼", "試撮開始", "試撮結束", "試撮價格", "結束價格",
-                  "漲跌幅%", "最後盤型", "試撮前累積量(張)", "試撮量(張)", "漲跌停警示"]
-    col_widths = [10,         13,         13,         10,         10,
-                  14,         10,         18,          12,         12]
+    headers    = ["日期", "股票代碼", "試撮開始", "試撮結束",
+                  "進試撮前末價", "試撮後首價", "試撮末價", "結束後首價",
+                  "漲跌幅%", "最後盤型",
+                  "試撮前累積量(張)", "進試撮前末量(張)", "試撮量(張)", "結束後首量(張)",
+                  "最大利潤", "最大虧損", "漲跌停警示"]
+    col_widths = [12, 10, 13, 13,
+                  14, 12, 12, 12,
+                  14, 10,
+                  16, 16, 12, 16,
+                  18, 18, 12]
 
     hdr_fill    = PatternFill("solid", fgColor="1F4E79")
     hdr_font    = Font(color="FFFFFF", bold=True, size=11)
@@ -215,14 +270,21 @@ def export_to_excel() -> str:
 
     for row_idx, r in enumerate(today_sim_records, 2):
         pct     = r.get("change_pct")
-        pct_str = format_change_pct(pct)
+        # 去掉前導 + 號，避免試算表把整格當公式（例如 +5.26% 會被算成 0.0526）
+        pct_str = format_change_pct(pct).lstrip("+")
         is_surge = pct is not None and abs(pct) >= SURGE_ALERT_PCT
 
+        # 最大利潤/最大虧損：以「試撮後首價」為基準，比試撮期間最高/最低價
+        base           = r.get("sim_first_price")
+        max_profit_str = format_pl(r.get("sim_high"), base)
+        max_loss_str   = format_pl(r.get("sim_low"),  base)
+
         values = [
-            r["code"],          r["start_time"],   r["end_time"],
-            r["sim_price"],     r["end_price"],    pct_str,
-            r["tick_type"],     r["pre_total_vol"],r["sim_vol"],
-            r["near_limit"],
+            r.get("date", ""),       r["code"],                r["start_time"],          r["end_time"],
+            r.get("pre_sim_price"),  r.get("sim_first_price"), r.get("sim_last_price"),  r["end_price"],
+            pct_str,                 r["tick_type"],
+            r["pre_total_vol"],      r.get("pre_sim_volume"),  r["sim_vol"],             r.get("end_volume"),
+            max_profit_str,          max_loss_str,             r["near_limit"],
         ]
         row_fill = alt_fill if row_idx % 2 == 0 else wht_fill
 
@@ -231,8 +293,9 @@ def export_to_excel() -> str:
             cell.fill      = row_fill
             cell.alignment = Alignment(horizontal="center")
 
-        # 漲跌幅欄（第6欄）：大幅異動 → 黃底深紅
-        pct_cell = ws.cell(row=row_idx, column=6)
+        # 漲跌幅欄（第9欄）：設文字格式避免被當公式；大幅異動 → 黃底深紅
+        pct_cell = ws.cell(row=row_idx, column=9)
+        pct_cell.number_format = "@"
         if is_surge:
             pct_cell.fill = surge_fill
             pct_cell.font = surge_font
@@ -240,9 +303,17 @@ def export_to_excel() -> str:
             color = "C00000" if pct >= 0 else "375623"  # 上漲深紅 / 下跌深綠
             pct_cell.font = Font(color=color, bold=True)
 
-        # 漲跌停警示欄（第10欄）標紅
+        # 最大利潤（第15欄）紅、最大虧損（第16欄）綠（台股紅漲綠跌）；設文字格式避免被當公式
+        profit_cell = ws.cell(row=row_idx, column=15)
+        profit_cell.font = Font(color="C00000", bold=True)
+        profit_cell.number_format = "@"
+        loss_cell = ws.cell(row=row_idx, column=16)
+        loss_cell.font = Font(color="375623", bold=True)
+        loss_cell.number_format = "@"
+
+        # 漲跌停警示欄（第17欄）標紅
         if r["near_limit"]:
-            ws.cell(row=row_idx, column=10).font = Font(color="FF0000", bold=True)
+            ws.cell(row=row_idx, column=17).font = Font(color="FF0000", bold=True)
 
     ws.freeze_panes = "A2"
     wb.save(filepath)
@@ -289,17 +360,26 @@ def get_dynamic_market_list(api):
 
     final_codes = []
     limit_info  = {}  # code -> (limit_up, limit_down, reference)
+    # 漲跌停價、昨收參考價要從「合約 contract」取——snapshot 物件沒有這些欄位（先前 bug 來源）
+    contract_by_code = {c.code: c for c in candidate_contracts}
     print(f"📈 正在分析 {len(candidate_contracts)} 檔標的的價格...")
 
     for i in range(0, len(candidate_contracts), 100):
         batch     = candidate_contracts[i:i+100]
         snapshots = api.snapshots(batch)
         for s in snapshots:
-            if s.close and 15 <= s.close <= 300:
+            if s.close and 15 <= s.close <= 500:
                 final_codes.append(s.code)
-                lu  = getattr(s, "limit_up",   None)
-                ld  = getattr(s, "limit_down",  None)
-                ref = getattr(s, "reference",   None)
+                c = contract_by_code.get(s.code)
+                # 昨收參考價：優先 contract.reference；取不到就用 snapshot「現價 − 漲跌額」反推
+                ref = _to_float(getattr(c, "reference", None)) if c else None
+                if ref is None:
+                    chg = _to_float(getattr(s, "change_price", None))
+                    if s.close is not None and chg is not None:
+                        ref = round(float(s.close) - chg, 2)
+                # 漲跌停價：優先 contract.limit_up/limit_down；取不到用昨收 ±10% 估
+                lu = _to_float(getattr(c, "limit_up",   None)) if c else None
+                ld = _to_float(getattr(c, "limit_down", None)) if c else None
                 if lu is None and ref:
                     lu = round(ref * 1.1, 2)
                 if ld is None and ref:
