@@ -16,6 +16,8 @@ IS_SIMULATION    = os.environ.get("SHIOAJI_SIMULATION", "false").lower() == "tru
 VOLUME_THRESHOLD = 100   # 試撮量門檻 (張)
 LIMIT_ALERT_PCT  = 0.02  # 距漲跌停 2% 以內觸發警示
 SURGE_ALERT_PCT  = 8.0   # 漲跌幅超過此值（%）時特別標注
+# 當日累積量低於此值(張)→ 推播與 Excel 標「量能不足」；改這個數字或設環境變數 LOW_VOLUME_THRESHOLD 都可
+LOW_VOLUME_THRESHOLD = int(os.environ.get("LOW_VOLUME_THRESHOLD", "500"))
 
 TZ_TW = pytz.timezone("Asia/Taipei")
 MARKET_CLOSE_HOUR   = 13
@@ -28,6 +30,7 @@ MONITOR_LABEL = os.environ.get("MONITOR_LABEL", "")   # 推播標題前綴（實
 last_push_time    = {}
 stock_state       = {}
 today_sim_records = []
+STOCK_NAMES       = {}   # code -> 股名
 
 api = sj.Shioaji(simulation=IS_SIMULATION)
 
@@ -140,6 +143,7 @@ def on_tick_handler(exchange, tick):
             record = {
                 "date"           : datetime.now(TZ_TW).strftime("%Y-%m-%d"),
                 "code"           : code,
+                "name"           : STOCK_NAMES.get(code, ""),
                 "start_time"     : state["sim_start_time"],
                 "end_time"       : tick.datetime.strftime("%H:%M:%S"),
                 "pre_sim_price"  : state["pre_sim_price"],     # 進試撮前末價
@@ -198,10 +202,13 @@ def on_tick_handler(exchange, tick):
             tags.append(near_limit)
         if is_surge:
             tags.append("🚨大幅異動")
+        if pre_vol < LOW_VOLUME_THRESHOLD:
+            tags.append("⚠️量能不足")
         tag_str = "　" + "　".join(tags) if tags else ""
 
+        name = STOCK_NAMES.get(code, "")
         msg = (
-            f"{code} 試撮:{close:.2f} 漲跌:{pct_str} 量:{tick.volume}張{tag_str}\n"
+            f"{code} {name} 試撮:{close:.2f} 漲跌:{pct_str} 量:{tick.volume}張{tag_str}\n"
             f"前價:{pre_price_str} {pre_type} 累積量:{pre_vol}張"
         )
         print(f"🔥 【試撮警報】[{state['sim_start_time']}] {msg}")
@@ -242,16 +249,16 @@ def export_to_excel() -> str:
     ws = wb.active
     ws.title = "試撮紀錄"
 
-    headers    = ["日期", "股票代碼", "試撮開始", "試撮結束",
+    headers    = ["日期", "股票代碼", "股名", "試撮開始", "試撮結束",
                   "進試撮前末價", "試撮後首價", "試撮末價", "結束後首價",
                   "漲跌幅%", "最後盤型",
                   "試撮前累積量(張)", "進試撮前末量(張)", "試撮量(張)", "結束後首量(張)",
-                  "最大利潤", "最大虧損", "漲跌停警示"]
-    col_widths = [12, 10, 13, 13,
+                  "最大利潤", "最大虧損", "漲跌停警示", "量能提示"]
+    col_widths = [12, 10, 12, 13, 13,
                   14, 12, 12, 12,
                   14, 10,
                   16, 16, 12, 16,
-                  18, 18, 12]
+                  18, 18, 12, 12]
 
     hdr_fill    = PatternFill("solid", fgColor="1F4E79")
     hdr_font    = Font(color="FFFFFF", bold=True, size=11)
@@ -278,13 +285,15 @@ def export_to_excel() -> str:
         base           = r.get("sim_first_price")
         max_profit_str = format_pl(r.get("sim_high"), base)
         max_loss_str   = format_pl(r.get("sim_low"),  base)
+        # 當日累積量低於門檻 → 量能不足
+        low_vol_str    = "量能不足" if (r.get("pre_total_vol") or 0) < LOW_VOLUME_THRESHOLD else ""
 
         values = [
-            r.get("date", ""),       r["code"],                r["start_time"],          r["end_time"],
+            r.get("date", ""),       r["code"],                r.get("name", ""),        r["start_time"],          r["end_time"],
             r.get("pre_sim_price"),  r.get("sim_first_price"), r.get("sim_last_price"),  r["end_price"],
             pct_str,                 r["tick_type"],
             r["pre_total_vol"],      r.get("pre_sim_volume"),  r["sim_vol"],             r.get("end_volume"),
-            max_profit_str,          max_loss_str,             r["near_limit"],
+            max_profit_str,          max_loss_str,             r["near_limit"],          low_vol_str,
         ]
         row_fill = alt_fill if row_idx % 2 == 0 else wht_fill
 
@@ -293,8 +302,8 @@ def export_to_excel() -> str:
             cell.fill      = row_fill
             cell.alignment = Alignment(horizontal="center")
 
-        # 漲跌幅欄（第9欄）：設文字格式避免被當公式；大幅異動 → 黃底深紅
-        pct_cell = ws.cell(row=row_idx, column=9)
+        # 漲跌幅欄（第10欄）：設文字格式避免被當公式；大幅異動 → 黃底深紅
+        pct_cell = ws.cell(row=row_idx, column=10)
         pct_cell.number_format = "@"
         if is_surge:
             pct_cell.fill = surge_fill
@@ -303,17 +312,20 @@ def export_to_excel() -> str:
             color = "C00000" if pct >= 0 else "375623"  # 上漲深紅 / 下跌深綠
             pct_cell.font = Font(color=color, bold=True)
 
-        # 最大利潤（第15欄）紅、最大虧損（第16欄）綠（台股紅漲綠跌）；設文字格式避免被當公式
-        profit_cell = ws.cell(row=row_idx, column=15)
+        # 最大利潤（第16欄）紅、最大虧損（第17欄）綠（台股紅漲綠跌）；設文字格式避免被當公式
+        profit_cell = ws.cell(row=row_idx, column=16)
         profit_cell.font = Font(color="C00000", bold=True)
         profit_cell.number_format = "@"
-        loss_cell = ws.cell(row=row_idx, column=16)
+        loss_cell = ws.cell(row=row_idx, column=17)
         loss_cell.font = Font(color="375623", bold=True)
         loss_cell.number_format = "@"
 
-        # 漲跌停警示欄（第17欄）標紅
+        # 漲跌停警示欄（第18欄）標紅
         if r["near_limit"]:
-            ws.cell(row=row_idx, column=17).font = Font(color="FF0000", bold=True)
+            ws.cell(row=row_idx, column=18).font = Font(color="FF0000", bold=True)
+        # 量能提示欄（第19欄）：量能不足 → 標橘
+        if low_vol_str:
+            ws.cell(row=row_idx, column=19).font = Font(color="C55A11", bold=True)
 
     ws.freeze_panes = "A2"
     wb.save(filepath)
@@ -345,6 +357,7 @@ def get_dynamic_market_list(api):
     MANUAL_BLACKLIST  = []
 
     candidate_contracts = []
+    # 只監控上市（TSE）；上櫃版在 experimental 分支
     for contract in api.Contracts.Stocks.TSE:
         if contract.code in MANUAL_BLACKLIST or contract.code in official_excluded:
             continue
@@ -357,6 +370,7 @@ def get_dynamic_market_list(api):
         if hasattr(contract, "special_type") and contract.special_type != 0:
             continue
         candidate_contracts.append(contract)
+    print(f"📋 上市族群篩選後：{len(candidate_contracts)} 檔")
 
     final_codes = []
     limit_info  = {}  # code -> (limit_up, limit_down, reference)
@@ -408,6 +422,7 @@ def start_monitoring():
 
     for code in final_monitor_list:
         contract = api.Contracts.Stocks[code]
+        STOCK_NAMES[code] = getattr(contract, "name", "")   # 建「代碼→股名」對照
         api.quote.subscribe(contract, quote_type=sj.constant.QuoteType.Tick)
 
     last_heartbeat_time = 0
