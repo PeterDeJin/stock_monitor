@@ -18,8 +18,6 @@ LIMIT_ALERT_PCT  = 0.02  # 距漲跌停 2% 以內觸發警示
 SURGE_ALERT_PCT  = 8.0   # 漲跌幅超過此值（%）時特別標注
 # 當日累積量低於此值(張)→ 推播與 Excel 標「量能不足」；改這個數字或設環境變數 LOW_VOLUME_THRESHOLD 都可
 LOW_VOLUME_THRESHOLD = int(os.environ.get("LOW_VOLUME_THRESHOLD", "500"))
-# 監控市場：TSE=上市 / OTC=上櫃 / BOTH=兩者都掃（由環境變數 MARKET_SCOPE 控制）
-MARKET_SCOPE = os.environ.get("MARKET_SCOPE", "BOTH").upper()
 
 TZ_TW = pytz.timezone("Asia/Taipei")
 MARKET_CLOSE_HOUR   = 13
@@ -359,43 +357,20 @@ def get_dynamic_market_list(api):
     MANUAL_BLACKLIST  = []
 
     candidate_contracts = []
-    market_count = {}   # 診斷：各市場通過篩選的檔數
-    # 依 MARKET_SCOPE 決定掃哪些市場（TSE 上市 / OTC 上櫃 / BOTH 兩者）
-    _markets = []
-    if MARKET_SCOPE in ("TSE", "BOTH"):
-        _markets.append(("上市", api.Contracts.Stocks.TSE))
-    if MARKET_SCOPE in ("OTC", "BOTH"):
-        _markets.append(("上櫃", api.Contracts.Stocks.OTC))
-    for mkt_name, market in _markets:
-        cnt = 0
-        for contract in market:
-            if contract.code in MANUAL_BLACKLIST or contract.code in official_excluded:
-                continue
-            if len(contract.code) != 4:
-                continue
-            if contract.category not in target_categories:
-                continue
-            if contract.day_trade != sj.constant.DayTrade.Yes:
-                continue
-            if hasattr(contract, "special_type") and contract.special_type != 0:
-                continue
-            candidate_contracts.append(contract)
-            cnt += 1
-        market_count[mkt_name] = cnt
-    print(f"📋 族群篩選後（僅上櫃）：上櫃 {market_count.get('上櫃',0)} 檔")
-
-    # 診斷 8042（上櫃）為何有/沒有被納入
-    try:
-        c8042 = api.Contracts.Stocks["8042"]
-        if c8042:
-            in_cat = c8042.category in target_categories
-            in_cand = any(c.code == "8042" for c in candidate_contracts)
-            print(f"🔎 8042 診斷：category={c8042.category}  day_trade={c8042.day_trade}  "
-                  f"→ 族群{'✓在' if in_cat else '✗不在'}清單、{'✓已納入候選' if in_cand else '✗未納入'}")
-        else:
-            print("🔎 8042 在合約庫找不到")
-    except Exception as e:
-        print(f"🔎 8042 診斷失敗：{e}")
+    # 只監控上櫃（OTC）；上市版在 main 分支
+    for contract in api.Contracts.Stocks.OTC:
+        if contract.code in MANUAL_BLACKLIST or contract.code in official_excluded:
+            continue
+        if len(contract.code) != 4:
+            continue
+        if contract.category not in target_categories:
+            continue
+        if contract.day_trade != sj.constant.DayTrade.Yes:
+            continue
+        if hasattr(contract, "special_type") and contract.special_type != 0:
+            continue
+        candidate_contracts.append(contract)
+    print(f"📋 上櫃族群篩選後：{len(candidate_contracts)} 檔")
 
     final_codes = []
     limit_info  = {}  # code -> (limit_up, limit_down, reference)
@@ -425,10 +400,7 @@ def get_dynamic_market_list(api):
                     ld = round(ref * 0.9, 2)
                 limit_info[s.code] = (lu, ld, ref)   # ← 新增 ref
 
-    result = final_codes[:254]
-    print(f"🔎 8042 是否進入最終監控清單（前 254）："
-          f"{'是 ✓' if '8042' in result else '否（被族群/價格/254 上限擋掉，看上方診斷）'}")
-    return result, limit_info
+    return final_codes[:254], limit_info
 
 
 # ─────────────── 主程式 ───────────────────────────────────
