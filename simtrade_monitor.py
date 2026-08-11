@@ -336,22 +336,20 @@ def export_to_excel() -> str:
 # ─────────────── 動態標的篩選 ────────────────────────────
 
 def get_dynamic_market_list(api):
-    official_excluded = []
+    disposal_excluded = set()   # 今日處置股（要排除）
     req_headers = {"User-Agent": "Mozilla/5.0"}
 
+    # 抓 TWSE 上市「處置有價證券」名單（股票代號在 Code 欄位）
     try:
-        urls = [
-            "https://www.twse.com.tw/exchangeReport/TWTB4U?response=json",
-            "https://www.twse.com.tw/exchangeReport/TWT11U?response=json",
-        ]
-        for url in urls:
-            res  = requests.get(url, headers=req_headers, timeout=10)
-            data = res.json()
-            if "data" in data:
-                official_excluded.extend([row[0].split(" ")[0] for row in data["data"]])
-        print("📊 官方異常名單同步完成")
+        res = requests.get("https://openapi.twse.com.tw/v1/announcement/punish",
+                           headers=req_headers, timeout=10)
+        for row in res.json():
+            code = str(row.get("Code", "")).strip()
+            if code:
+                disposal_excluded.add(code)
+        print(f"🚫 上市處置股名單：{len(disposal_excluded)} 檔")
     except Exception as e:
-        print(f"⚠️ 官方名單讀取失敗: {e}")
+        print(f"⚠️ 處置股名單讀取失敗: {e}")
 
     target_categories = ["24","25","26","27","28","29","30","31","32","21","03","13","23"]
     MANUAL_BLACKLIST  = []
@@ -359,7 +357,7 @@ def get_dynamic_market_list(api):
     candidate_contracts = []
     # 只監控上市（TSE）；上櫃版在 experimental 分支
     for contract in api.Contracts.Stocks.TSE:
-        if contract.code in MANUAL_BLACKLIST or contract.code in official_excluded:
+        if contract.code in MANUAL_BLACKLIST or contract.code in disposal_excluded:
             continue
         if len(contract.code) != 4:
             continue
