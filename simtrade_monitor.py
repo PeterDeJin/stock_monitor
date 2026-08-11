@@ -383,20 +383,24 @@ def get_dynamic_market_list(api):
             if s.close and 15 <= s.close <= 500:
                 final_codes.append(s.code)
                 c = contract_by_code.get(s.code)
-                # 昨收參考價：優先 contract.reference；取不到就用 snapshot「現價 − 漲跌額」反推
-                ref = _to_float(getattr(c, "reference", None)) if c else None
-                if ref is None:
-                    chg = _to_float(getattr(s, "change_price", None))
-                    if s.close is not None and chg is not None:
-                        ref = round(float(s.close) - chg, 2)
-                # 漲跌停價：優先 contract.limit_up/limit_down；取不到用昨收 ±10% 估
                 lu = _to_float(getattr(c, "limit_up",   None)) if c else None
                 ld = _to_float(getattr(c, "limit_down", None)) if c else None
+                # 昨收：優先 snapshot「現價−漲跌額」反推（即時準）；次用漲停價÷1.1；
+                #       contract.reference 常過時（曾算出假的 16%＋），只當最後備援
+                ref = None
+                chg = _to_float(getattr(s, "change_price", None))
+                if s.close is not None and chg is not None:
+                    ref = round(float(s.close) - chg, 2)
+                if ref is None and lu:
+                    ref = round(lu / 1.1, 2)
+                if ref is None:
+                    ref = _to_float(getattr(c, "reference", None)) if c else None
+                # 漲跌停價取不到就用昨收 ±10% 估
                 if lu is None and ref:
                     lu = round(ref * 1.1, 2)
                 if ld is None and ref:
                     ld = round(ref * 0.9, 2)
-                limit_info[s.code] = (lu, ld, ref)   # ← 新增 ref
+                limit_info[s.code] = (lu, ld, ref)
 
     return final_codes[:254], limit_info
 
