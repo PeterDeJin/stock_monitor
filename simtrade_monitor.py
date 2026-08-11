@@ -192,6 +192,7 @@ def on_tick_handler(exchange, tick):
 
         pre_price     = state["last_normal_price"]
         pre_type      = tick_type_str(state["last_normal_tick_type"])
+        pre_type_dot  = {"內盤": "🔴內盤", "外盤": "🟢外盤"}.get(pre_type, pre_type)  # 推播用：內盤紅、外盤綠
         pre_vol       = state["last_normal_total_vol"]
         pre_price_str = f"{pre_price:.2f}" if pre_price is not None else "無前置"
         pct_str       = format_change_pct(change_pct)
@@ -209,7 +210,7 @@ def on_tick_handler(exchange, tick):
         name = STOCK_NAMES.get(code, "")
         msg = (
             f"{code} {name} 試撮:{close:.2f} 漲跌:{pct_str} 量:{tick.volume}張{tag_str}\n"
-            f"前價:{pre_price_str} {pre_type} 累積量:{pre_vol}張"
+            f"前價:{pre_price_str} {pre_type_dot} 累積量:{pre_vol}張"
         )
         print(f"🔥 【試撮警報】[{state['sim_start_time']}] {msg}")
 
