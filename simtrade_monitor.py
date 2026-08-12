@@ -392,16 +392,17 @@ def get_dynamic_market_list(api):
                 c = contract_by_code.get(s.code)
                 lu = _to_float(getattr(c, "limit_up",   None)) if c else None
                 ld = _to_float(getattr(c, "limit_down", None)) if c else None
-                # 昨收：優先 snapshot「現價−漲跌額」反推（即時準）；次用漲停價÷1.1；
-                #       contract.reference 常過時（曾算出假的 16%＋），只當最後備援
-                ref = None
-                chg = _to_float(getattr(s, "change_price", None))
-                if s.close is not None and chg is not None:
-                    ref = round(float(s.close) - chg, 2)
+                # 昨收參考價：優先 contract.reference（盤前它就是今日參考價＝昨收，最可靠）。
+                #   ⚠️不可拿 snapshot「現價−漲跌額」當首選：程式盤前抓 snapshot，開盤前
+                #   close＝昨收、change_price＝昨日漲跌，相減會得到「前天收盤」，害今日漲跌幅
+                #   多算一天、多檔冒出假的大幅異動。故 snapshot 反推只當 reference 取不到時備援。
+                ref = _to_float(getattr(c, "reference", None)) if c else None
+                if ref is None:
+                    chg = _to_float(getattr(s, "change_price", None))
+                    if s.close is not None and chg is not None:
+                        ref = round(float(s.close) - chg, 2)
                 if ref is None and lu:
                     ref = round(lu / 1.1, 2)
-                if ref is None:
-                    ref = _to_float(getattr(c, "reference", None)) if c else None
                 # 漲跌停價取不到就用昨收 ±10% 估
                 if lu is None and ref:
                     lu = round(ref * 1.1, 2)
