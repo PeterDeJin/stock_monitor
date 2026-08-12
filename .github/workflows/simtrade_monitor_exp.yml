@@ -1,4 +1,4 @@
-name: 台股試撮監控(實驗版-上櫃)
+name: 台股試撮監控(上櫃)
 
 on:
   schedule:
@@ -34,7 +34,7 @@ jobs:
           SHIOAJI_SECRET_KEY: ${{ secrets.SHIOAJI_SECRET_KEY_EXP }}
           SHIOAJI_SIMULATION: "false"
           BARK_KEYS:          ${{ secrets.BARK_KEYS }}
-          MONITOR_LABEL:      "[實驗版]"
+          MONITOR_LABEL:      "[上櫃]"
         run: python simtrade_monitor.py
 
       # 只上傳 Artifact（保留 7 天），不 commit 回 repo
@@ -42,6 +42,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: 試撮紀錄-上櫃實驗版-${{ github.run_id }}
+          name: 試撮紀錄-上櫃-${{ github.run_id }}
           path: 試撮紀錄_*.xlsx
           retention-days: 7
