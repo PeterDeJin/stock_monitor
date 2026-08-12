@@ -44,10 +44,16 @@ def send_bark_alert(title: str, content: str):
     enc_content = urllib.parse.quote(content)
     for key in BARK_KEYS:
         url = f"https://api.day.app/{key}/{enc_title}/{enc_content}"
-        try:
-            requests.get(url, timeout=3)
-        except Exception as e:
-            print(f"❌ Bark 推送失敗: {e}")
+        # 啟動瞬間(runner 剛起+07:10 尖峰)網路常不穩，單次推播易 timeout 漏掉，
+        # 故失敗自動重試最多 3 次、timeout 拉長到 8 秒（免得系統公告要手動重開才收到）
+        for attempt in range(3):
+            try:
+                requests.get(url, timeout=8)
+                break
+            except Exception as e:
+                print(f"❌ Bark 推送失敗(第{attempt+1}/3次): {e}")
+                if attempt < 2:
+                    time.sleep(2)
 
 
 def tick_type_str(tick_type: int) -> str:
